@@ -44,7 +44,7 @@ def merge_segments(original_segments):
                 "id": len(merged_segments),
                 "seek": segment["seek"],
                 "start": 0.00,
-                "end": segment["end"],
+                "end": segment["start"],
                 "text": "[Intro]",
                 "tokens": segment["tokens"],  # You may need to update this based on your requirements
                 "temperature": segment["temperature"],
@@ -262,43 +262,7 @@ def main():
 
     video_path = os.path.abspath(sys.argv[1])
     audio_output_path = os.path.join(script_dir, "output_audio.wav")
-    output_synced_video_path = os.path.join(script_dir, f"{os.path.basename(video_path).split('.')[0]}_tr.mp4")import os
-import shutil
-import sys
-import json
-from datetime import datetime, timedelta
-from googletrans import Translator
-import deepl
-from moviepy.editor import VideoFileClip, AudioFileClip, concatenate_videoclips, TextClip
-from moviepy.audio.fx.all import audio_fadein, audio_fadeout
-import logging
-import numpy as np
-import whisper_timestamped as whisper
-from TTS.api import TTS
-import pysrt
-import subprocess
-import tempfile
-import concurrent.futures  # Import the module for parallel processing
-
-
-# Configure logging
-logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
-logger = logging.getLogger(__name__)
-
-translator = deepl.Translator("230371e8-9dad-4a76-8e46-50241c697d32:fx")
-
-def extract_audio(video_path, audio_output_path):
-    logger.info(f"Extracting audio from {video_path}")
-    video_clip = VideoFileClip(video_path)
-    audio_clip = video_clip.audio
-    audio_clip.write_audiofile(audio_output_path, codec='pcm_s16le', fps=16000)
-    logger.info(f"Audio extracted and saved to {audio_output_path}")
-    return audio_output_path
-
-def merge_segments(original_segments):
-    merged_segments = []
-
-
+    output_synced_video_path = os.path.join(script_dir, f"{os.path.basename(video_path).split('.')[0]}_tr.mp4")
 
     # Step 1: Extract audio from the video
     audio_path = extract_audio(video_path, audio_output_path)
