@@ -3,7 +3,6 @@ import shutil
 import sys
 import json
 from datetime import datetime, timedelta
-from googletrans import Translator
 import deepl
 from moviepy.editor import VideoFileClip, AudioFileClip, concatenate_videoclips, TextClip
 from moviepy.audio.fx.all import audio_fadein, audio_fadeout
@@ -11,10 +10,9 @@ import logging
 import numpy as np
 import whisper_timestamped as whisper
 from TTS.api import TTS
-import pysrt  # Add the import for pysrt
-from moviepy.editor import *
+import pysrt
 import subprocess
-import tempfile
+import concurrent.futures  # Import the module for parallel processing
 
 
 # Configure logging
@@ -31,8 +29,8 @@ def extract_audio(video_path, audio_output_path):
     logger.info(f"Audio extracted and saved to {audio_output_path}")
     return audio_output_path
 
-def split_segments(original_segments):
-    new_segments = []
+def merge_segments(original_segments):
+    merged_segments = []
 
     current_start_time = original_segments[0]["start"]
     current_sentence = ""
@@ -40,6 +38,28 @@ def split_segments(original_segments):
     sentence_counter = 0
 
     for i, segment in enumerate(original_segments):
+        if i == 0:
+            # If it's the first segment, create a new segment with the start time of segment[0]
+            new_segment = {
+                "id": len(merged_segments),
+                "seek": segment["seek"],
+                "start": 0.00,
+                "end": segment["start"],
+                "text": "[Intro]",
+                "tokens": segment["tokens"],  # You may need to update this based on your requirements
+                "temperature": segment["temperature"],
+                "confidence": segment["confidence"],
+                "words": current_words  # Include words up to the current word
+            }
+
+            merged_segments.append(new_segment)
+
+            # Update start time for the next sentence
+            current_start_time = segment["start"]
+            # Reset the current sentence and current words
+            current_sentence = ""
+            current_words = []
+
         for word in segment["words"]:
             if word["text"] == "[*]":
                 continue  # Skip words with text "[*]"
@@ -52,12 +72,10 @@ def split_segments(original_segments):
 
                 if sentence_counter == 2:
                     sentence_counter = 0
-                    # End of a sentence
-                    current_words[-1]["end"] = word["end"]
 
                     # Combine every two sentences or if there are no sentences left
                     new_segment = {
-                        "id": len(new_segments),
+                        "id": len(merged_segments),
                         "seek": segment["seek"],
                         "start": current_start_time,
                         "end": word["end"],
@@ -68,7 +86,7 @@ def split_segments(original_segments):
                         "words": current_words  # Include words up to the current word
                     }
 
-                    new_segments.append(new_segment)
+                    merged_segments.append(new_segment)
 
                     # Update start time for the next sentence
                     current_start_time = word["end"]
@@ -76,26 +94,7 @@ def split_segments(original_segments):
                     current_sentence = ""
                     current_words = []
 
-    # Check if there are remaining segments after the loop
-    if current_words:
-        # Combine the remaining segments
-        new_segment = {
-            "id": len(new_segments),
-            "seek": original_segments[-1]["seek"],
-            "start": current_start_time,
-            "end": current_words[-1]["end"],
-            "text": current_sentence.strip(),
-            "tokens": original_segments[-1]["tokens"],  # You may need to update this based on your requirements
-            "temperature": original_segments[-1]["temperature"],
-            "confidence": original_segments[-1]["confidence"],
-            "words": current_words  # Include remaining words
-        }
-        new_segments.append(new_segment)
-
-    print(new_segments)
-
-    return new_segments
-
+    return merged_segments
 
 def asr_segmentation(video_path, audio_path, temp_folder="temp"):
     model = whisper.load_model("base", device="cuda")
@@ -105,7 +104,7 @@ def asr_segmentation(video_path, audio_path, temp_folder="temp"):
 
     # Get timestamps from the transcribed segments
     fortranslate = result["segments"]
-    speech_timestamps = split_segments(fortranslate)
+    speech_timestamps = merge_segments(fortranslate)
     # Create the temp folder if not exists
     os.makedirs(temp_folder, exist_ok=True)
 
@@ -186,31 +185,32 @@ def asr_segmentation(video_path, audio_path, temp_folder="temp"):
         speed_factor = translated_audio_duration / original_video_duration
 
         # Apply speed change to video using FFmpeg
-        ffmpeg_speed_change_command = [
-            'ffmpeg',
-            '-y',
-            '-i', segment_path,
-            '-r', '60',
-            '-c:v', 'h264_amf',
-            '-vf', f'setpts={speed_factor}*PTS',
-            'temp_slowed.mp4'
-        ]
-        subprocess.run(ffmpeg_speed_change_command)
+        if i != 0:
+            ffmpeg_speed_change_command = [
+                'ffmpeg',
+                '-y',
+                '-i', segment_path,
+                '-r', '60',
+                '-c:v', 'h264_amf',
+                '-vf', f'setpts={speed_factor}*PTS',
+                'temp_slowed.mp4'
+            ]
+            subprocess.run(ffmpeg_speed_change_command)
 
-        # Concatenate slowed video with translated audio using FFmpeg
-        ffmpeg_concat_command = [
-            'ffmpeg',
-            '-y',
-            '-i', 'temp_slowed.mp4',
-            '-i', translated_audio_output_path,
-            '-c:v', 'h264_amf',
-            '-c:a', 'aac',
-            '-strict', 'experimental',
-            '-threads', '48',
-            '-shortest',  # Ensure output is the duration of the shorter input
-            segment_path
-        ]
-        subprocess.run(ffmpeg_concat_command)
+            # Concatenate slowed video with translated audio using FFmpeg
+            ffmpeg_concat_command = [
+                'ffmpeg',
+                '-y',
+                '-i', 'temp_slowed.mp4',
+                '-i', translated_audio_output_path,
+                '-c:v', 'h264_amf',
+                '-c:a', 'aac',
+                '-strict', 'experimental',
+                '-threads', '48',
+                '-shortest',  # Ensure output is the duration of the shorter input
+                segment_path
+            ]
+            subprocess.run(ffmpeg_concat_command)
 
         # Convert start and end times to pysrt format (seconds with milliseconds)
         start_time_seconds = int(start_time)
@@ -229,7 +229,6 @@ def asr_segmentation(video_path, audio_path, temp_folder="temp"):
 
         original_segments.append(segment_path)
         translated_segments.append(segment_path)
-
 
     translated_srt.save(translated_srt_path, encoding='utf-8')
     # Correct indentation for the return statement
@@ -256,12 +255,15 @@ def concatenate_video_ffmpeg(video_segments, output_path):
 
 def main():
     if len(sys.argv) != 2:
-        logger.error("Usage: python script_name.py <video_path>")
+        logger.error("Usage: ruhsub <video_name>")
         sys.exit(1)
 
-    video_path = sys.argv[1]
-    audio_output_path = "output_audio.wav"
-    output_synced_video_path = os.path.basename(video_path).split('/')[-1] + "_tr.mp4"
+    script_dir = os.path.dirname(os.path.abspath(__file__))
+    os.chdir(script_dir)
+
+    video_path = os.path.abspath(sys.argv[1])
+    audio_output_path = os.path.join(script_dir, "output_audio.wav")
+    output_synced_video_path = os.path.join(script_dir, f"{os.path.basename(video_path).split('.')[0]}_tr.mp4")
 
     # Step 1: Extract audio from the video
     audio_path = extract_audio(video_path, audio_output_path)
@@ -277,10 +279,11 @@ def main():
     # Step 4: Combine all the segmented MP4s into one MP4 using the list
     concatenate_video_ffmpeg(translated_segments_paths, output_synced_video_path)
 
-    shutil.rmtree('./temp/')
-    os.remove("output_audio.wav")
-    os.remove("segment_paths.txt")
-    os.remove("temp_slowed.mp4")
+    shutil.rmtree(os.path.join(script_dir, "temp/"))
+    os.remove(os.path.join(script_dir, "output_audio.wav"))
+    os.remove(os.path.join(script_dir, "segment_paths.txt"))
+    os.remove(os.path.join(script_dir, "temp_slowed.mp4"))
+
 
     logger.info("Processing completed")
 
