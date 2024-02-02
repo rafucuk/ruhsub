@@ -47,7 +47,7 @@ def merge_segments(original_segments):
                 "seek": segment["seek"],
                 "start": 0.00,
                 "end": segment["end"],
-                "text": current_sentence.strip(),
+                "text": "[Intro]",
                 "tokens": segment["tokens"],  # You may need to update this based on your requirements
                 "temperature": segment["temperature"],
                 "confidence": segment["confidence"],
