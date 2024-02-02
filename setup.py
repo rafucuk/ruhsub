@@ -7,26 +7,25 @@ except ImportError:
     from distutils.core import setup
 
 setup(
-    name='autosub',
+    name='ruhsub',
     version='0.4.0',
     description='Auto-generates subtitles && edites video audio for any video or audio file',
-    author='Rauf ŞEn',
+    author='Rauf Şen',
     author_email='raufsen11@gmail.com',
     url='https://github.com/rafucuk/ruhsub',
     packages=['ruhsub'],
     entry_points={
         'console_scripts': [
-            'ruhsub = ruhsub:main',
+            'ruhsub=ruhsub.ruhsub:main',
         ],
     },
     install_requires=[
-        'torch==1.10.0+rocm',
         'googletrans==4.0.0-rc1',
         'deepl==1.16.1',
         'moviepy==1.0.3',
-        'whisper_timestamped==0.1.0',
+        'whisper_timestamped==1.14.4',
+        'whisper==1.1.10',
         'TTS==0.22.0',
         'pysrt==1.1.2',
-    ],
-    license=open("LICENSE").read()
+    ]
 )
