@@ -8,7 +8,7 @@ except ImportError:
 
 setup(
     name='ruhsub',
-    version='0.4.0',
+    version='0.5.5',
     description='Auto-generates subtitles && edites video audio for any video or audio file',
     author='Rauf Şen',
     author_email='raufsen11@gmail.com',
