@@ -8,7 +8,7 @@ except ImportError:
 
 setup(
     name='ruhsub',
-    version='0.4.0',
+    version='0.5.6',
     description='Auto-generates subtitles && edites video audio for any video or audio file',
     author='Rauf Şen',
     author_email='raufsen11@gmail.com',
@@ -16,7 +16,7 @@ setup(
     packages=['ruhsub'],
     entry_points={
         'console_scripts': [
-            'ruhsub=ruhsub.ruhsub:main',
+            'ruhsub=ruhsub:main',
         ],
     },
     install_requires=[
@@ -27,5 +27,7 @@ setup(
         'whisper==1.1.10',
         'TTS==0.22.0',
         'pysrt==1.1.2',
+        'PyDeepLX==1.0.6',
+        'langdetect==1.0.9',
     ]
 )
