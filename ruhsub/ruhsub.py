@@ -4,6 +4,7 @@ import sys
 import json
 from datetime import datetime, timedelta
 import deepl
+from PyDeepLX import PyDeepLX
 from moviepy.editor import VideoFileClip, AudioFileClip, concatenate_videoclips, TextClip
 from moviepy.audio.fx.all import audio_fadein, audio_fadeout
 import logging
@@ -162,7 +163,7 @@ def asr_segmentation(video_path, audio_path, temp_folder):
 
     translated_srt_path = os.path.basename(video_path).split('/')[-1] + "_tr.srt"
     translated_srt = pysrt.SubRipFile()
-    tts = TTS("tts_models/multilingual/multi-dataset/xtts_v2", gpu=True)
+    tts = TTS("tts_models/multilingual/multi-dataset/bark", gpu=True)
 
     translated_segments_paths = []
 
@@ -217,7 +218,8 @@ def asr_segmentation(video_path, audio_path, temp_folder):
         #
         # Translate the text and create audio file from translated text
         #
-        translated_text = translator.translate_text(segment['text'], target_lang='tr').text
+        PyDeepLX.translate(text=segment['text'], targetLang="TR", numberAlternative=0, printResult=False)
+
         tts.tts_to_file(translated_text,
                         speaker_wav='output_audio.wav',
                         file_path=os.path.join(temp_folder, f"tr_segment_{i}.wav"),
