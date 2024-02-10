@@ -16,7 +16,7 @@ setup(
     packages=['ruhsub'],
     entry_points={
         'console_scripts': [
-            'ruhsub=ruhsub:main',
+            'ruhsub=ruhsub.ruhsub:main',
         ],
     },
     install_requires=[
