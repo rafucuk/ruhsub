@@ -3,8 +3,6 @@ import shutil
 import sys
 import json
 from datetime import datetime, timedelta
-import deepl
-from PyDeepLX import PyDeepLX
 from moviepy.editor import VideoFileClip, AudioFileClip, concatenate_videoclips, TextClip
 from moviepy.audio.fx.all import audio_fadein, audio_fadeout
 import logging
@@ -14,18 +12,20 @@ from TTS.api import TTS
 import pysrt
 import subprocess
 import concurrent.futures  # Import the module for parallel processing
-
+import deepl
 
 # Configure logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
 
-translator = deepl.Translator("230371e8-9dad-4a76-8e46-50241c697d32:fx")
+translator = deepl.Translator("3b039f0e-2363-4ddf-84f0-27e921d51121")
 
 def convert_to_mp4(input_path, output_path):
     logging.info(f"Converting {input_path} to MP4 format")
     command = [
         'ffmpeg',
+        '-hide_banner',
+        '-loglevel', 'error',
         '-y',
         '-i', input_path,
         '-c:v', 'libx264',
@@ -47,6 +47,10 @@ def convert_to_mp4(input_path, output_path):
 def extract_audio(video_path, audio_output_path):
     logging.info(f"Processing video: {video_path}")
 
+    if os.path.exists(audio_output_path):
+        logging.info(f"Audio file already exists at {audio_output_path}. Skipping extraction.")
+        return audio_output_path
+
     # Check if the video needs conversion (if it's not already in MP4 format)
     if video_path.lower().endswith('.mkv'):
         mp4_path = video_path.rsplit('.', 1)[0] + '.mp4'
@@ -59,6 +63,8 @@ def extract_audio(video_path, audio_output_path):
     # Use FFmpeg to extract audio
     command = [
         'ffmpeg',
+        '-hide_banner',
+        '-loglevel', 'error',
         '-y',
         '-i', video_path,
         '-vn',  # Disable video recording
@@ -119,7 +125,7 @@ def merge_segments(original_segments):
             if any(char in ['.', '!', '?'] for char in cleaned_text):
                 sentence_counter += 1
 
-                if sentence_counter == 1:
+                if sentence_counter == 2:
                     sentence_counter = 0
 
                     # Combine every two sentences or if there are no sentences left
@@ -142,17 +148,18 @@ def merge_segments(original_segments):
                     # Reset the current sentence and current words
                     current_sentence = ""
                     current_words = []
-
-
     return merged_segments
 
 def asr_segmentation(video_path, audio_path, temp_folder):
+    logging.info(f"Loading Whisper Model")
     model = whisper.load_model("base", device="cuda")
 
     # Transcribe the entire audio
+    logging.info(f"Transcribing audio")
     result = whisper.transcribe(model, audio_path, language="en", beam_size=20, best_of=20, vad="auditok", temperature=(0.0, 0.2, 0.4, 0.6, 0.8, 1.0), detect_disfluencies=True)
 
     # Get timestamps from the transcribed segments
+    logging.info(f"Formatting segments for translation")
     fortranslate = result["segments"]
     speech_timestamps = merge_segments(fortranslate)
     # Create the temp folder if not exists
@@ -161,13 +168,16 @@ def asr_segmentation(video_path, audio_path, temp_folder):
     translated_segments = []
     original_segments = []
 
+
+    logging.info(f"Loading TTS for audio creation")
     translated_srt_path = os.path.basename(video_path).split('/')[-1] + "_tr.srt"
     translated_srt = pysrt.SubRipFile()
-    tts = TTS("tts_models/multilingual/multi-dataset/bark", gpu=True)
+    tts = TTS("tts_models/multilingual/multi-dataset/xtts_v2", gpu=True)
 
     translated_segments_paths = []
 
     for i, segment in enumerate(speech_timestamps):
+        logging.info(f"Start of segmentation")
         start_time, end_time = segment['start'], segment['end']
         segment_path = os.path.join(temp_folder, f"segment_{i}.mp4")
         audio_output_path = os.path.join(temp_folder, f"segment_{i}.wav")
@@ -179,14 +189,15 @@ def asr_segmentation(video_path, audio_path, temp_folder):
             # If it's the last segment, set the end time to the end of the video file
             videoclip = VideoFileClip(video_path)
             end_time = videoclip.duration
-        if debug_mode:
-            logging.debug(f"Processing segment {i + 1} - Start Time: {segment['start']}, End Time: {segment['end']}")
 
         #
         # Use MoviePy for video slicing without audio
         #
+        logging.info(f"Slicing video")
         ffmpeg_command = [
             'ffmpeg',
+            '-hide_banner',
+            '-loglevel', 'error',
             '-y',
             '-ss', str(start_time),
             '-i', video_path,
@@ -201,8 +212,11 @@ def asr_segmentation(video_path, audio_path, temp_folder):
         #
         # Use MoviePy for audio slicing
         #
+        logging.info(f"Slicing audio")
         ffmpeg_command = [
             'ffmpeg',
+            '-hide_banner',
+            '-loglevel', 'error',
             '-y',
             '-ss', str(start_time),
             '-i', audio_path,
@@ -218,8 +232,10 @@ def asr_segmentation(video_path, audio_path, temp_folder):
         #
         # Translate the text and create audio file from translated text
         #
-        PyDeepLX.translate(text=segment['text'], targetLang="TR", numberAlternative=0, printResult=False)
+        logging.info(f"Translating text using DeepL")
+        translated_text = translator.translate_text(segment['text'], target_lang='tr').text
 
+        logging.info(f"Creating audio file")
         tts.tts_to_file(translated_text,
                         speaker_wav='output_audio.wav',
                         file_path=os.path.join(temp_folder, f"tr_segment_{i}.wav"),
@@ -243,9 +259,13 @@ def asr_segmentation(video_path, audio_path, temp_folder):
         # Calculate speed_factor
         speed_factor = translated_audio_duration / original_video_duration
 
+
+        logging.info(f"Speeding up or slowing down video for matching to audio")
         # Apply speed change to video using FFmpeg
         ffmpeg_speed_change_command = [
             'ffmpeg',
+            '-hide_banner',
+            '-loglevel', 'error',
             '-y',
             '-i', segment_path,
             '-r', '60',
@@ -255,9 +275,13 @@ def asr_segmentation(video_path, audio_path, temp_folder):
         ]
         subprocess.run(ffmpeg_speed_change_command)
 
+
+        logging.info(f"Combining audio with new video")
         # Concatenate slowed video with translated audio using FFmpeg
         ffmpeg_concat_command = [
             'ffmpeg',
+            '-hide_banner',
+            '-loglevel', 'error',
             '-y',
             '-i', 'temp_slowed.mp4',
             '-i', translated_audio_output_path,
@@ -296,8 +320,11 @@ def asr_segmentation(video_path, audio_path, temp_folder):
 
 def concatenate_video_ffmpeg(output_path):
     # Use ffmpeg to concatenate the video segments
+    logging.info(f"Concatenate all videos")
     ffmpeg_command = [
         'ffmpeg',
+        '-hide_banner',
+        '-loglevel', 'error',
         '-y',
         '-f', 'concat',
         '-safe', '0',  # Allow the use of unsafe file names
@@ -317,15 +344,11 @@ def main():
 
     script_dir = os.getcwd()
     os.chdir(script_dir)
-
+    logging.info(f"Version 5.0.6")
     video_path = os.path.abspath(sys.argv[1])
     temp_path = os.path.join(script_dir, "temp/")
     audio_output_path = os.path.join(script_dir, "output_audio.wav")
     output_synced_video_path = os.path.join(script_dir, f"{os.path.basename(video_path).split('.')[0]}_tr.mp4")
-
-    debug_mode = "--debug" in sys.argv
-    if debug_mode:
-        print("debug mode enabled")
 
     # Step 1: Extract audio from the video
     audio_path = extract_audio(video_path, audio_output_path)
